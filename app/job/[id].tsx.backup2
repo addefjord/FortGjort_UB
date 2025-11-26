@@ -1,0 +1,750 @@
+import { FontAwesome } from '@expo/vector-icons';
+import { formatDistanceToNow } from 'date-fns';
+import { nb } from 'date-fns/locale';
+import { BlurView } from 'expo-blur';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text } from '../../components/themed-text';
+import Colors from '../../constants/Colors';
+import { useColorScheme } from '../../hooks/use-color-scheme';
+import { useAuth } from '../../lib/auth-context';
+import { database } from '../../lib/database';
+import { formatLocation } from '../../lib/format-location';
+import type { Job } from '../../types/database';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+export default function JobDetails() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [job, setJob] = useState<Job | null>(null);
+  const [sellerJobs, setSellerJobs] = useState<Job[]>([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  // Use theme
+  const colorScheme = useColorScheme();
+  const themeColors = Colors[colorScheme];
+  const [bidOpen, setBidOpen] = useState(false);
+  const [bidAmount, setBidAmount] = useState('');
+  const [placing, setPlacing] = useState(false);
+
+  const loadJob = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const jobData = await database.jobs.getById(id);
+      setJob(jobData);
+      
+      // Load other jobs from same seller
+      if (jobData.created_by) {
+        const otherJobs = await database.jobs.getBySeller(jobData.created_by, 10);
+        // Filter out current job
+        setSellerJobs(otherJobs.filter(j => j.id !== id));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kunne ikke laste jobb';
+      setError(message);
+      console.error('Feil ved lasting av jobb:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadJob();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.loadingContainer, { backgroundColor: themeColors.background }]} edges={["top"]}>
+        <ActivityIndicator size="large" color={themeColors.tint} />
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={[styles.errorContainer, { backgroundColor: themeColors.background }]} edges={["top"]}>
+        <FontAwesome name="exclamation-circle" size={60} color="#ff6b6b" />
+        <Text style={styles.errorTitle}>Kunne ikke laste jobben</Text>
+        <Text style={styles.errorMessage}>{error}</Text>
+        <View style={styles.errorActions}>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={loadJob}
+          >
+            <FontAwesome name="refresh" size={16} color="white" style={{ marginRight: 8 }} />
+            <Text style={styles.retryButtonText}>Prøv igjen</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.backButtonText}>Gå tilbake</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!job) {
+    return null;
+  }
+
+  const handleBid = () => {
+    if (!user?.id) {
+      Alert.alert('Innlogging kreves', 'Du må være logget inn for å gi bud.');
+      return;
+    }
+    if (job.created_by === user.id) {
+      Alert.alert('Ikke tillatt', 'Du kan ikke gi bud på din egen jobb.');
+      return;
+    }
+    if (job.status !== 'open') {
+      Alert.alert('Stengt', 'Du kan kun gi bud på åpne jobber.');
+      return;
+    }
+    setBidOpen(true);
+  };
+
+  const handleMessage = () => {
+    if (!user?.id) {
+      Alert.alert('Innlogging kreves', 'Logg inn for å sende melding.');
+      return;
+    }
+    router.push(`/chat/${job.created_by}`);
+  };
+
+  const handleApply = () => {
+    if (!user?.id) {
+      Alert.alert('Innlogging kreves', 'Logg inn for å søke på jobben.');
+      return;
+    }
+    Alert.alert('Søk jobb', 'Du har søkt på jobben!');
+  };
+
+  const handleReport = () => {
+    Alert.alert('Rapporter', 'Rapporter svindel eller regelbrudd');
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={["top", "left", "right"]}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={{ flexGrow: 1 }}>
+        {/* Top bar with back button */}
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={() => router.back()} style={[styles.backIconButton, { backgroundColor: themeColors.card }] }>
+            <FontAwesome name="chevron-left" size={18} color={themeColors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.favoriteButton, { backgroundColor: themeColors.card }] }>
+            <FontAwesome name="heart-o" size={24} color={themeColors.text} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Image section */}
+        <View style={styles.imageWrapper}>
+          {job.images && job.images.length > 0 ? (
+            <View style={styles.imageContainer}>
+              <ScrollView 
+                horizontal 
+                pagingEnabled 
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(event) => {
+                  const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
+                  setCurrentImageIndex(index);
+                }}
+              >
+                {job.images.map((imageUri, index) => (
+                  <Image 
+                    key={index}
+                    source={{ uri: imageUri }} 
+                    style={styles.jobImage}
+                    resizeMode="cover"
+                  />
+                ))}
+              </ScrollView>
+              <Text style={styles.imageCounter}>{currentImageIndex + 1} / {job.images.length}</Text>
+            </View>
+          ) : (
+            <View style={[styles.imagePlaceholder, { backgroundColor: themeColors.card }]}>
+              <FontAwesome name="image" size={60} color={themeColors.textMuted} />
+              <Text style={styles.imageCounter}>Ingen bilder</Text>
+            </View>
+          )}
+          {/* Status badge */}
+          {job.status !== 'open' && (
+            <View style={[styles.statusBadge,
+              job.status === 'in_progress' && { backgroundColor: themeColors.success },
+              job.status === 'completed' && { backgroundColor: themeColors.primary },
+              job.status === 'cancelled' && { backgroundColor: themeColors.error },
+            ]}>
+              <Text style={styles.statusText}>
+                {job.status === 'in_progress' ? 'Har en jobber' :
+                  job.status === 'completed' ? 'Fullført' :
+                  job.status === 'cancelled' ? 'Kansellert' : ''}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Favorite section */}
+        <View style={styles.favoriteSection}>
+          <FontAwesome name="heart-o" size={20} color={themeColors.tint} />
+          <Text style={[styles.favoriteText, { color: themeColors.tint }]}>Lagt til som favoritt</Text>
+          <Text style={[styles.favoriteTime, { color: themeColors.textMuted }] }>
+            {formatDistanceToNow(new Date(job.created_at), { locale: nb, addSuffix: true })}
+          </Text>
+        </View>
+
+        {/* Main info section */}
+        <View style={styles.mainInfo}>
+          <Text style={[styles.title, { color: themeColors.text }]}>{job.title}</Text>
+          <Text style={[styles.subtitle, { color: themeColors.textMuted }]}>Til salgs</Text>
+          <Text style={[styles.price, { color: themeColors.text }]}>{job.price} kr</Text>
+        </View>
+
+        {/* Send melding button */}
+        <View style={styles.primaryButtonContainer}>
+          <TouchableOpacity style={[styles.primaryButton, { backgroundColor: themeColors.tint }]} onPress={handleMessage}>
+            <Text style={styles.primaryButtonText}>Send melding</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Info grid - Tilstand and Type */}
+        <View style={styles.infoGrid}>
+          <View style={styles.infoGridItem}>
+            <Text style={[styles.infoGridLabel, { color: themeColors.textMuted }]}>Timelønn</Text>
+            <Text style={[styles.infoGridValue, { color: themeColors.text }]}>{job.price} kr</Text>
+          </View>
+          <View style={styles.infoGridItem}>
+            <Text style={[styles.infoGridLabel, { color: themeColors.textMuted }]}>Type</Text>
+            <Text style={[styles.infoGridValue, { color: themeColors.text }]}>{job.category}</Text>
+          </View>
+        </View>
+
+        {/* Description */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Beskrivelse av varen</Text>
+          <Text style={[styles.sectionText, { color: themeColors.text }]}>{job.description}</Text>
+        </View>
+
+        {/* Seller profile */}
+        <View style={styles.sellerSection}>
+          <View style={[styles.sellerCard, { backgroundColor: themeColors.card }] }>
+            <View style={[styles.sellerAvatar, { backgroundColor: themeColors.background }] }>
+              <FontAwesome name="user" size={32} color={themeColors.textMuted} />
+            </View>
+            <View style={styles.sellerInfo}>
+              <Text style={[styles.sellerName, { color: themeColors.tint }]}>Bruker {job.created_by.substring(0, 8)}</Text>
+              <View style={styles.verifiedBadge}>
+                <FontAwesome name="check-circle" size={14} color={themeColors.tint} />
+                <Text style={[styles.verifiedText, { color: themeColors.text }]}>Verifisert med BankID</Text>
+              </View>
+              <Text style={[styles.memberSince, { color: themeColors.textMuted }]}>Har vært på FINN siden 2020</Text>
+              <View style={styles.ratingRow}>
+                <Text style={[styles.ratingScore, { color: themeColors.tint }]}>10</Text>
+                <Text style={[styles.ratingCount, { color: themeColors.tint }]}>8 vurderinger</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Location */}
+        <View style={[styles.locationSection, { borderTopColor: themeColors.border }]}>
+          <FontAwesome name="map-marker" size={20} color={themeColors.tint} />
+          <Text style={[styles.locationText, { color: themeColors.tint }]}>{formatLocation(job.location)}</Text>
+        </View>
+
+        {/* Ad banner placeholder */}
+        <View style={[styles.adBanner, { backgroundColor: themeColors.card }]}>
+          <Text style={[styles.adText, { color: themeColors.textMuted }]}>Annonseplass</Text>
+        </View>
+
+        {/* About the listing */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Om annonsen</Text>
+          <View style={styles.aboutItem}>
+            <Text style={[styles.aboutLabel, { color: themeColors.textMuted }]}>FINN-kode</Text>
+            <Text style={[styles.aboutValue, { color: themeColors.text }]}>{job.id.substring(0, 8)}</Text>
+          </View>
+          <View style={styles.aboutItem}>
+            <Text style={[styles.aboutLabel, { color: themeColors.textMuted }]}>Sist endret</Text>
+            <Text style={[styles.aboutValue, { color: themeColors.text }] }>
+              {new Date(job.created_at).toLocaleDateString('no-NO', { 
+                day: 'numeric', 
+                month: 'short', 
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+            </Text>
+          </View>
+        </View>
+
+        {/* Report link */}
+        <TouchableOpacity style={[styles.reportLink, { borderTopColor: themeColors.border }]} onPress={handleReport}>
+          <Text style={[styles.reportText, { color: themeColors.tint }]}>Rapporter svindel/regelbrudd</Text>
+        </TouchableOpacity>
+
+        {/* More from seller */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Mer fra selgeren</Text>
+            {sellerJobs.length > 3 && (
+              <TouchableOpacity>
+                <Text style={[styles.viewAllLink, { color: themeColors.tint }]}>Vis alt ({sellerJobs.length})</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.relatedJobs}>
+            {sellerJobs.slice(0, 5).map((sellerJob) => (
+              <TouchableOpacity 
+                key={sellerJob.id}
+                style={styles.relatedJobCard}
+                onPress={() => router.push(`/job/${sellerJob.id}`)}
+              >
+                {sellerJob.images && sellerJob.images.length > 0 ? (
+                  <Image 
+                    source={{ uri: sellerJob.images[0] }} 
+                    style={styles.relatedJobImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[styles.relatedJobImage, { backgroundColor: themeColors.card }]}>
+                    <FontAwesome name="image" size={40} color={themeColors.textMuted} />
+                  </View>
+                )}
+                <Text style={[styles.relatedJobPrice, { color: themeColors.text }]}>{sellerJob.price} kr</Text>
+                <Text style={[styles.relatedJobLocation, { color: themeColors.textMuted }]}>{formatLocation(sellerJob.location)}</Text>
+                <Text style={[styles.relatedJobTitle, { color: themeColors.text }]} numberOfLines={2}>{sellerJob.title}</Text>
+              </TouchableOpacity>
+            ))}
+            {sellerJobs.length === 0 && (
+              <View style={styles.relatedJobCard}>
+                <View style={[styles.relatedJobImage, { backgroundColor: themeColors.card }]}>
+                  <FontAwesome name="image" size={40} color={themeColors.textMuted} />
+                </View>
+                <Text style={[styles.relatedJobPrice, { color: themeColors.textMuted }]}>Ingen andre annonser</Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+
+        {/* Similar listings */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Lignende annonser</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.relatedJobs}>
+            {/* Placeholder for similar jobs */}
+            <View style={styles.relatedJobCard}>
+              <View style={[styles.relatedJobImage, { backgroundColor: themeColors.card }] }>
+                <FontAwesome name="image" size={40} color={themeColors.textMuted} />
+              </View>
+              <Text style={[styles.relatedJobPrice, { color: themeColors.text }]}>500 kr</Text>
+              <Text style={[styles.relatedJobLocation, { color: themeColors.textMuted }]}>Trondheim</Text>
+              <Text style={[styles.relatedJobTitle, { color: themeColors.text }]} numberOfLines={2}>Lignende jobb</Text>
+            </View>
+          </ScrollView>
+        </View>
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+
+      {/* Bottom action bar - only Søk jobb button */}
+      {job.status === 'open' && (
+        <BlurView
+          intensity={100}
+          tint={colorScheme === 'dark' ? 'dark' : 'light'}
+          experimentalBlurMethod="dimezisBlurView"
+          style={[styles.actionContainer, { borderTopColor: 'rgba(255, 255, 255, 0.15)', paddingBottom: 20 + insets.bottom }]}
+        >
+          <TouchableOpacity
+            style={[styles.applyButtonBottom, { backgroundColor: themeColors.tint }]}
+            onPress={handleApply}
+          >
+            <FontAwesome name="briefcase" size={20} color="white" />
+            <Text style={styles.actionButtonText}>Søk jobb</Text>
+          </TouchableOpacity>
+        </BlurView>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  backIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  favoriteButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageWrapper: {
+    width: SCREEN_WIDTH,
+    height: 400,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  imageContainer: {
+    width: SCREEN_WIDTH,
+    height: '100%',
+  },
+  jobImage: {
+    width: SCREEN_WIDTH,
+    height: 400,
+  },
+  imagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageCounter: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statusBadge: {
+    position: 'absolute',
+    top: 70,
+    left: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    zIndex: 2,
+  },
+  inProgressBadge: {
+    backgroundColor: '#FFB74D',
+  },
+  completedBadge: {
+    backgroundColor: '#4CAF50',
+  },
+  cancelledBadge: {
+    backgroundColor: '#F44336',
+  },
+  statusText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  favoriteSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  favoriteText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  favoriteTime: {
+    fontSize: 14,
+    marginLeft: 'auto',
+  },
+  mainInfo: {
+    padding: 20,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 15,
+    marginBottom: 8,
+  },
+  price: {
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  primaryButtonContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 20,
+  },
+  primaryButton: {
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    color: 'white',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  infoGrid: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    gap: 16,
+  },
+  infoGridItem: {
+    flex: 1,
+  },
+  infoGridLabel: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  infoGridValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  section: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderTopWidth: 0,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  sectionText: {
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  sellerSection: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderTopWidth: 0,
+  },
+  sellerCard: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 16,
+    gap: 16,
+  },
+  sellerAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sellerInfo: {
+    flex: 1,
+  },
+  sellerName: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  verifiedText: {
+    fontSize: 14,
+  },
+  memberSince: {
+    fontSize: 14,
+    marginBottom: 6,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ratingScore: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  ratingCount: {
+    fontSize: 14,
+  },
+  locationSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderTopWidth: 0,
+  },
+  locationText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  adBanner: {
+    height: 120,
+    marginHorizontal: 20,
+    marginVertical: 20,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  adText: {
+    fontSize: 16,
+  },
+  aboutItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  aboutLabel: {
+    fontSize: 15,
+  },
+  aboutValue: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  reportLink: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 0,
+  },
+  reportText: {
+    fontSize: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  viewAllLink: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  relatedJobs: {
+    flexDirection: 'row',
+  },
+  relatedJobCard: {
+    width: 160,
+    marginRight: 16,
+  },
+  relatedJobImage: {
+    width: 160,
+    height: 160,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  relatedJobPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  relatedJobLocation: {
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  relatedJobTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  actionContainer: {
+    padding: 20,
+    borderTopWidth: 0,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopColor: 'transparent',
+  },
+  applyButtonBottom: {
+    borderRadius: 12,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  actionButtonText: {
+    color: 'white',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: Colors.dark.background,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+    color: Colors.dark.text,
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: Colors.dark.textMuted,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  errorActions: {
+    flexDirection: 'row',
+    marginTop: 20,
+    gap: 12,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.dark.tint,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  backButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    backgroundColor: Colors.dark.card,
+  },
+  backButtonText: {
+    color: Colors.dark.textMuted,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});

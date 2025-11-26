@@ -1,0 +1,170 @@
+import { FontAwesome as FA, FontAwesome } from '@expo/vector-icons';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text } from '../../components/themed-text';
+import Colors from '../../constants/Colors';
+import { useAuth } from '../../lib/auth-context';
+import { useData } from '../../lib/data-context';
+import { database } from '../../lib/database';
+import { supabase } from '../../lib/supabase';
+import type { Message } from '../../types/database';
+
+export default function ChatScreen() {
+  const { id: otherUserId } = useLocalSearchParams<{ id: string }>();
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [text, setText] = useState('');
+  const [otherName, setOtherName] = useState<string>('');
+  const listRef = useRef<FlatList<Message>>(null);
+  const { loadMessages } = useData();
+
+  const load = async () => {
+    if (!user?.id || !otherUserId) return;
+    try {
+      setLoading(true);
+      const data = await database.messages.getConversation(user.id, otherUserId);
+      setMessages(data);
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+      // Mark any unread messages addressed to the current user as read
+      const unread = data.filter(m => m.receiver_id === user.id && !m.read);
+      if (unread.length) {
+        // Fire-and-forget updates to mark as read
+        unread.forEach(m => database.messages.markAsRead(m.id));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const send = async () => {
+    if (!user?.id || !otherUserId || !text.trim() || sending) return;
+    try {
+      setSending(true);
+      const msg = await database.messages.send({
+        sender_id: user.id,
+        receiver_id: otherUserId,
+        content: text.trim(),
+      });
+      setText('');
+      setMessages((prev) => [...prev, msg]);
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      // Refresh global inbox so message appears immediately there too
+      loadMessages();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [user?.id, otherUserId]);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!otherUserId) return;
+      try {
+        const p = await database.profiles.get(otherUserId);
+        setOtherName(p?.name || 'Chat');
+      } catch {
+        setOtherName('Chat');
+      }
+    };
+    run();
+  }, [otherUserId]);
+
+  useEffect(() => {
+    if (!user?.id || !otherUserId) return;
+    const channel = supabase
+      .channel('chat-thread')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        const m = payload.new as Message;
+        const match =
+          (m.sender_id === user.id && m.receiver_id === otherUserId) ||
+          (m.sender_id === otherUserId && m.receiver_id === user.id);
+        if (match) setMessages((prev) => [...prev, m]);
+          // If the incoming message is addressed to me, mark it read immediately
+          if (match && m.receiver_id === user.id && !m.read) {
+            database.messages.markAsRead(m.id);
+          }
+      })
+      .subscribe();
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [user?.id, otherUserId]);
+
+  const renderItem = ({ item }: { item: Message }) => {
+    const mine = item.sender_id === user?.id;
+    return (
+      <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+        <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>{item.content}</Text>
+      </View>
+    );
+  };
+
+  return (
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.select({ ios: 'padding', android: undefined })}>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.light.tint} />
+        </View>
+      ) : (
+        <>
+          <SafeAreaView edges={["top"]}>
+            <View style={styles.header}>
+              <TouchableOpacity style={styles.headerBack} onPress={() => router.back()}>
+                <FA name="chevron-left" size={18} color="#000" />
+              </TouchableOpacity>
+              <Text style={styles.headerTitle}>{otherName || 'Chat'}</Text>
+              <View style={{ width: 36 }} />
+            </View>
+          </SafeAreaView>
+          <FlatList
+            ref={listRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={[styles.listContent, { paddingTop: 8 }]}
+            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          />
+
+          <View style={styles.composer}>
+            <TextInput
+              style={styles.input}
+              value={text}
+              onChangeText={setText}
+              placeholder="Skriv en melding"
+              placeholderTextColor="#999"
+              multiline
+            />
+            <TouchableOpacity style={[styles.sendButton, (!text.trim() || sending) && styles.sendDisabled]} onPress={send} disabled={!text.trim() || sending}>
+              <FontAwesome name="send" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.light.background },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  listContent: { padding: 16, paddingBottom: 90 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10, backgroundColor: Colors.light.background },
+  headerBack: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  bubble: { maxWidth: '80%', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 4 },
+  bubbleMine: { alignSelf: 'flex-end', backgroundColor: Colors.light.tint },
+  bubbleTheirs: { alignSelf: 'flex-start', backgroundColor: '#e9ecef' },
+  bubbleText: { color: '#333', fontSize: 16 },
+  bubbleTextMine: { color: '#fff' },
+  composer: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: 'white', borderTopWidth: 1, borderTopColor: '#eee' },
+  input: { flex: 1, minHeight: 40, maxHeight: 120, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: 'white' },
+  sendButton: { marginLeft: 8, backgroundColor: Colors.light.tint, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+  sendDisabled: { opacity: 0.6 },
+});
