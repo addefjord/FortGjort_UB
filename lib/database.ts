@@ -169,14 +169,35 @@ export const database = {
 
   // Meldings-operasjoner
   messages: {
-    send: async (message: Omit<Message, 'id' | 'created_at' | 'read'>) => {
+    send: async (message: Omit<Message, 'id' | 'created_at' | 'updated_at' | 'read'>) => {
+      // Ensure user has valid session before inserting
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please log in.');
+      }
+      
+      // Debug: log what we're sending
+      console.log('Sending message:', {
+        sender_id: message.sender_id,
+        auth_uid: session.user.id,
+        match: message.sender_id === session.user.id
+      });
+      
       const { data, error } = await supabase
         .from('messages')
         .insert({ ...message, read: false })
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Insert error details:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
+        throw error;
+      }
       return data as Message;
     },
 
