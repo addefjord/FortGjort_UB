@@ -4,13 +4,25 @@
 -- Adjust to your desired schema resolution order
 -- Common best practice: restrict to pg_catalog and the explicit schema
 
--- public.set_updated_at
-alter function public.set_updated_at()
-  set search_path = pg_catalog, public;
+do $$
+begin
+  begin
+    alter function public.set_updated_at()
+      set search_path = pg_catalog, public;
+  exception when undefined_function then
+    raise notice 'Function public.set_updated_at() not found, skipping search_path hardening.';
+  end;
+end $$;
 
--- public.send_message
-alter function public.send_message(uuid, uuid, text, text)
-  set search_path = pg_catalog, public;
+do $$
+begin
+  begin
+    alter function public.send_message(uuid, uuid, text, text)
+      set search_path = pg_catalog, public;
+  exception when undefined_function then
+    raise notice 'Function public.send_message(uuid, uuid, text, text) not found, skipping search_path hardening.';
+  end;
+end $$;
 
 -- Note: Auth warnings (leaked password protection, MFA options)
 -- must be configured in the Supabase Dashboard, not via SQL.
