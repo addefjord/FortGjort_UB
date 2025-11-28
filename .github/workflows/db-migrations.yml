@@ -1,0 +1,56 @@
+name: Supabase DB Migrations
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "supabase/migrations/**"
+  workflow_dispatch:
+
+jobs:
+  apply-migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: List migrations to apply
+        run: |
+          echo "Migrations found:"
+          ls -1 supabase/migrations/*.sql 2>/dev/null || echo "No migration files found"
+
+      - name: Apply migrations via connection pooler
+        env:
+          PGHOST: ${{ secrets.SUPABASE_POOLER_HOST }}
+          PGUSER: ${{ secrets.SUPABASE_POOLER_USER }}
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PGDATABASE: ${{ secrets.SUPABASE_DB_NAME }}
+          PGSSLMODE: require
+        run: |
+          set -e
+          # Default to 'postgres' if DB name not provided
+          export PGDATABASE="${PGDATABASE:-postgres}"
+          
+          echo "Connecting to $PGHOST as $PGUSER"
+          
+          # Apply each migration in lexical order
+          for migration in $(ls -1 supabase/migrations/*.sql 2>/dev/null | sort); do
+            echo ""
+            echo "=========================================="
+            echo "Applying: $migration"
+            echo "=========================================="
+            psql -v ON_ERROR_STOP=1 -f "$migration"
+            echo "✓ Applied: $migration"
+          done
+          
+          echo ""
+          echo "=========================================="
+          echo "All migrations applied successfully!"
+          echo "=========================================="
