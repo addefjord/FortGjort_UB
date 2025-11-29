@@ -40,13 +40,34 @@ jobs:
           
           echo "Connecting to $PGHOST as $PGUSER"
           
-          # Apply each migration in lexical order
+          # Create migrations tracking table if it doesn't exist
+          psql -v ON_ERROR_STOP=1 << 'SQL'
+          create table if not exists public.schema_migrations (
+            version text primary key,
+            applied_at timestamptz default now()
+          );
+          SQL
+          
+          # Apply each migration in lexical order if not already applied
           for migration in $(ls -1 supabase/migrations/*.sql 2>/dev/null | sort); do
+            filename=$(basename "$migration")
+            
+            # Check if migration already applied
+            already_applied=$(psql -tAc "select 1 from public.schema_migrations where version = '$filename'")
+            
+            if [ "$already_applied" = "1" ]; then
+              echo "⏭️  Skipping (already applied): $filename"
+              continue
+            fi
+            
             echo ""
             echo "=========================================="
             echo "Applying: $migration"
             echo "=========================================="
             psql -v ON_ERROR_STOP=1 -f "$migration"
+            
+            # Mark as applied
+            psql -v ON_ERROR_STOP=1 -c "insert into public.schema_migrations(version) values ('$filename')"
             echo "✓ Applied: $migration"
           done
           
