@@ -171,23 +171,55 @@ export const database = {
   messages: {
     send: async (message: Omit<Message, 'id' | 'created_at' | 'updated_at' | 'read'>) => {
       // Ensure user has valid session before inserting
-      const { data: { session } } = await supabase.auth.getSession();
+      let { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('No active session. Please log in.');
       }
-      
+
+      // Force refresh and set session to ensure JWT is attached on next request
+      try {
+        await supabase.auth.refreshSession();
+        const refreshed = await supabase.auth.getSession();
+        if (refreshed.data.session) {
+          session = refreshed.data.session;
+          await supabase.auth.setSession({
+            access_token: session.access_token!,
+            refresh_token: session.refresh_token!,
+          });
+        }
+      } catch {}
+
       // Debug: log what we're sending
       console.log('Sending message:', {
         sender_id: message.sender_id,
         auth_uid: session.user.id,
         match: message.sender_id === session.user.id
       });
-      
-      const { data, error } = await supabase
-        .from('messages')
-        .insert({ ...message, read: false })
-        .select()
-        .single();
+
+      const attemptInsert = async () => {
+        // Prefer server-side RPC to ensure auth context is applied
+        const { data, error } = await supabase.rpc('send_message', {
+          p_sender: message.sender_id,
+          p_receiver: message.receiver_id,
+          p_content: message.content ?? '',
+          p_image_url: (message as any).image_url ?? null,
+        });
+        // Shape result like PostgREST insert/select
+        return { data, error } as { data: Message | null; error: any };
+      };
+
+      let { data, error } = await attemptInsert();
+      // If RLS fails, try one quick retry after re-setting session
+      if (error?.code === '42501') {
+        const s = (await supabase.auth.getSession()).data.session;
+        if (s) {
+          await supabase.auth.setSession({
+            access_token: s.access_token!,
+            refresh_token: s.refresh_token!,
+          });
+          ({ data, error } = await attemptInsert());
+        }
+      }
 
       if (error) {
         console.error('Insert error details:', {

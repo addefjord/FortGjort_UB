@@ -1,98 +1,282 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { FontAwesome } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { JobCard } from '../../components/job-card';
+import { Text } from '../../components/themed-text';
+import Colors from '../../constants/Colors';
+import { useColorScheme } from '../../hooks/use-color-scheme';
+import { useDebounce } from '../../hooks/use-debounce';
+import { useData } from '../../lib/data-context';
+import { JobCategories, JobCategory } from '../../types/jobs';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+export default function JobList() {
+  const insets = useSafeAreaInsets();
+  const { jobs, loadJobs, isLoading, errors } = useData();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<JobCategory>('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const colorScheme = useColorScheme();
 
-export default function HomeScreen() {
+  // Debounce search query to avoid excessive API calls
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+
+  // Load jobs when debounced search or category changes
+  useEffect(() => {
+    loadJobs({
+      category: selectedCategory === 'all' ? undefined : selectedCategory,
+      search: debouncedSearchQuery || undefined
+    });
+  }, [debouncedSearchQuery, selectedCategory]);
+
+  // Category chips UI removed for now; default category is 'all'.
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadJobs({
+      category: selectedCategory === 'all' ? undefined : selectedCategory,
+      search: searchQuery || undefined
+    });
+    setRefreshing(false);
+  };
+
+  if (isLoading.jobs && !refreshing && jobs.length === 0) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: Colors[colorScheme].background }]}>
+        <ActivityIndicator size="large" color={Colors[colorScheme].tint} />
+      </View>
+    );
+  }
+
+  // Show error state with retry button
+  if (errors.jobs && jobs.length === 0) {
+    return (
+      <View style={[styles.errorContainer, { backgroundColor: Colors[colorScheme].background }]}>
+        <FontAwesome name="exclamation-circle" size={60} color={Colors[colorScheme].error} />
+        <Text style={[styles.errorTitle, { color: Colors[colorScheme].text }]}>Noe gikk galt</Text>
+        <Text style={[styles.errorMessage, { color: Colors[colorScheme].textMuted }]}>{errors.jobs}</Text>
+        <TouchableOpacity 
+          style={[styles.retryButton, { backgroundColor: Colors[colorScheme].tint }]}
+          onPress={() => loadJobs({
+            category: selectedCategory === 'all' ? undefined : selectedCategory,
+            search: debouncedSearchQuery || undefined
+          })}
+        >
+          <FontAwesome name="refresh" size={16} color="white" style={{ marginRight: 8 }} />
+          <Text style={styles.retryButtonText}>Prøv igjen</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Removed CategoryChips component to simplify the UI and avoid unused styles.
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme].background }]} edges={['top']}>
+      {/* FINN-style header */}
+      <View style={[styles.header, { backgroundColor: Colors[colorScheme].background }]}>
+        {/* Search bar */}
+        <View style={[styles.searchContainer, { backgroundColor: Colors[colorScheme].input, borderColor: Colors[colorScheme].border }]}>
+          <FontAwesome name="search" size={18} color={Colors[colorScheme].textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={[styles.searchInput, { color: Colors[colorScheme].text }]}
+            placeholder="Søk etter jobber"
+            placeholderTextColor={Colors[colorScheme].textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            clearButtonMode="while-editing"
+          />
+        </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        {/* Category chips - FINN style */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryChips}
+        >
+          <TouchableOpacity
+            style={[
+              styles.categoryChip,
+              selectedCategory === 'all' && { backgroundColor: Colors[colorScheme].tint },
+              selectedCategory !== 'all' && { backgroundColor: Colors[colorScheme].card, borderWidth: 1, borderColor: Colors[colorScheme].border }
+            ]}
+            onPress={() => setSelectedCategory('all')}
+          >
+            <Text style={[
+              styles.categoryChipText,
+              { color: selectedCategory === 'all' ? '#FFFFFF' : Colors[colorScheme].text }
+            ]}>
+              Alle
+            </Text>
+          </TouchableOpacity>
+          {Object.entries(JobCategories).map(([key, label]) => {
+            if (key === 'all') return null;
+            return (
+              <TouchableOpacity
+                key={key}
+                style={[
+                  styles.categoryChip,
+                  selectedCategory === key && { backgroundColor: Colors[colorScheme].tint },
+                  selectedCategory !== key && { backgroundColor: Colors[colorScheme].card, borderWidth: 1, borderColor: Colors[colorScheme].border }
+                ]}
+                onPress={() => setSelectedCategory(key as JobCategory)}
+              >
+                <Text style={[
+                  styles.categoryChipText,
+                  { color: selectedCategory === key ? '#FFFFFF' : Colors[colorScheme].text }
+                ]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <FlatList
+        data={jobs}
+        initialNumToRender={6}
+        windowSize={5}
+        renderItem={({ item }) => (
+          <JobCard 
+            job={item}
+            onPress={(job) => router.push({
+              pathname: '/job/[id]',
+              params: { id: job.id }
+            })}
+          />
+        )}
+        keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={styles.row}
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[Colors[colorScheme].tint]}
+          />
+        }
+        ListEmptyComponent={() => (
+          <View style={styles.emptyContainer}>
+            <FontAwesome name="search" size={50} color={Colors[colorScheme].textMuted} />
+            <Text style={[styles.emptyText, { color: Colors[colorScheme].textMuted }]}>
+              Ingen jobber funnet
+            </Text>
+            <Text style={[styles.emptySubtext, { color: Colors[colorScheme].textMuted }]}>
+              Prøv å endre søkekriteriene
+            </Text>
+          </View>
+        )}
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    marginBottom: 16,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  searchIcon: {
+    marginRight: 10,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+  },
+  categoryChips: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  categoryChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  categoryChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  list: {
+    flex: 1,
+  },
+  row: {
+    gap: 12,
+    paddingHorizontal: 20,
+  },
+  listContent: {
+    paddingTop: 8,
+    paddingBottom: 24,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    marginTop: 50,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    marginTop: 8,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  errorMessage: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 20,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -199,11 +199,15 @@ create policy messages_select_involved on public.messages
 
 drop policy if exists messages_insert_sender on public.messages;
 create policy messages_insert_sender on public.messages
-  for insert with check (sender_id = auth.uid());
+  for insert with check (auth.uid() IS NOT NULL);
 
 drop policy if exists messages_update_self on public.messages;
 create policy messages_update_self on public.messages
   for update using (sender_id = auth.uid() or receiver_id = auth.uid());
+
+drop policy if exists messages_delete_sender on public.messages;
+create policy messages_delete_sender on public.messages
+  for delete using (sender_id = auth.uid());
 
 -- Payments policies (per user)
 drop policy if exists payments_select_self on public.payments;

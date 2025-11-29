@@ -50,6 +50,16 @@ export default function ChatScreen() {
     if (!user?.id || !otherUserId || (!text.trim() && !selectedImage) || sending) return;
     try {
       setSending(true);
+      
+      // Debug: Check session
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('Session check:', { hasSession: !!session, userId: user.id });
+      
+      if (!session) {
+        Alert.alert('Sesjon utløpt', 'Vennligst logg inn på nytt.');
+        setSending(false);
+        return;
+      }
 
       // For now, store the local image URI directly
       // In production, you'd upload to Supabase storage first
@@ -65,9 +75,10 @@ export default function ChatScreen() {
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
       // Refresh global inbox so message appears immediately there too
       loadMessages();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Send message failed:', error);
-      Alert.alert('Feil', 'Kunne ikke sende meldingen');
+      const errorMsg = error?.message || 'Kunne ikke sende meldingen';
+      Alert.alert('Feil', errorMsg);
     } finally {
       setSending(false);
     }
