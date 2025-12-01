@@ -60,13 +60,6 @@ function MessageBubble({ item, mine, timestamp, onDelete, styles }: { item: Mess
         style={[
           styles.bubble,
           mine ? styles.bubbleMine : styles.bubbleTheirs,
-          {
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.1,
-            shadowRadius: 3,
-            elevation: 2,
-          },
         ]}
       >
         {item.image_url && (
@@ -367,11 +360,6 @@ function getStyles(theme: typeof Colors.light, scheme: 'light' | 'dark') {
       backgroundColor: theme.card,
       alignItems: 'center',
       justifyContent: 'center',
-      shadowColor: theme.shadow,
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: scheme === 'dark' ? 0.4 : 0.1,
-      shadowRadius: 3,
-      elevation: 2,
     },
     headerTitle: { fontSize: 18, fontWeight: '700' },
     bubble: {
@@ -408,11 +396,6 @@ function getStyles(theme: typeof Colors.light, scheme: 'light' | 'dark') {
       backgroundColor: scheme === 'dark' ? theme.card : '#FFFFFF',
       borderTopWidth: 1,
       borderTopColor: theme.border,
-      shadowColor: theme.shadow,
-      shadowOffset: { width: 0, height: -2 },
-      shadowOpacity: scheme === 'dark' ? 0.4 : 0.08,
-      shadowRadius: 6,
-      elevation: 6,
     },
     imagePreviewContainer: { marginBottom: 8, position: 'relative' },
     imagePreview: { width: 100, height: 100, borderRadius: 8 },
@@ -426,11 +409,6 @@ function getStyles(theme: typeof Colors.light, scheme: 'light' | 'dark') {
       height: 24,
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: theme.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: scheme === 'dark' ? 0.5 : 0.2,
-      shadowRadius: 4,
-      elevation: 4,
     },
     inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     attachButton: { padding: 8 },
@@ -453,11 +431,6 @@ function getStyles(theme: typeof Colors.light, scheme: 'light' | 'dark') {
       paddingHorizontal: 16,
       paddingVertical: 10,
       borderRadius: 18,
-      shadowColor: theme.tint,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: scheme === 'dark' ? 0.5 : 0.25,
-      shadowRadius: 4,
-      elevation: 4,
     },
     sendDisabled: { opacity: 0.5 },
   });
