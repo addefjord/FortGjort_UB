@@ -4,7 +4,7 @@ import { nb } from 'date-fns/locale';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, TextInput, TouchableOpacity, View, Linking } from 'react-native';
+import { ActivityIndicator, Alert, Animated, FlatList, Image, KeyboardAvoidingView, Linking, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '../../components/themed-text';
 import Colors from '../../constants/Colors';
@@ -328,7 +328,11 @@ export default function ChatScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.select({ ios: 'padding', android: undefined })}>
+    <KeyboardAvoidingView 
+      style={styles.container} 
+      behavior={Platform.select({ ios: 'padding', android: 'height' })}
+      keyboardVerticalOffset={Platform.select({ ios: 0, android: 20 })}
+    >
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.light.tint} />
