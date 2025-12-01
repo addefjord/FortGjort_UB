@@ -4,7 +4,7 @@ import { nb } from 'date-fns/locale';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, TextInput, TouchableOpacity, View, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '../../components/themed-text';
 import Colors from '../../constants/Colors';
@@ -16,7 +16,7 @@ import { supabase } from '../../lib/supabase';
 import type { Message } from '../../types/database';
 
 // Animated wrapper for a single message bubble
-function MessageBubble({ item, mine, timestamp, onDelete, styles }: { item: Message; mine: boolean; timestamp: string; onDelete: () => void; styles: ReturnType<typeof getStyles> }) {
+function MessageBubble({ item, mine, timestamp, onDelete, styles, theme }: { item: Message; mine: boolean; timestamp: string; onDelete: () => void; styles: ReturnType<typeof getStyles>; theme: typeof Colors.light }) {
   const fadeAnim = useRef(new Animated.Value(0));
   const slideAnim = useRef(new Animated.Value(20));
 
@@ -68,15 +68,15 @@ function MessageBubble({ item, mine, timestamp, onDelete, styles }: { item: Mess
           </TouchableOpacity>
         )}
         {item.content ? (
-          <Text
+          <ParsedMessage
+            text={item.content}
             style={[
               styles.bubbleText,
               mine && styles.bubbleTextMine,
               item.image_url && styles.bubbleTextWithImage,
             ]}
-          >
-            {item.content}
-          </Text>
+            linkColor={mine ? '#fff' : theme.tint}
+          />
         ) : null}
         <View style={styles.bubbleFooter}>
           <Text style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}>{timestamp}</Text>
@@ -98,6 +98,31 @@ function MessageBubble({ item, mine, timestamp, onDelete, styles }: { item: Mess
         </View>
       </TouchableOpacity>
     </Animated.View>
+  );
+}
+
+// Simple URL parsing component for clickable links
+function ParsedMessage({ text, style, linkColor }: { text: string; style: any; linkColor: string }) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts: Array<{ content: string; isLink: boolean }> = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(urlRegex)) {
+    if (match.index === undefined) continue;
+    if (match.index > lastIndex) parts.push({ content: text.slice(lastIndex, match.index), isLink: false });
+    parts.push({ content: match[0], isLink: true });
+    lastIndex = (match.index + match[0].length);
+  }
+  if (lastIndex < text.length) parts.push({ content: text.slice(lastIndex), isLink: false });
+  return (
+    <Text style={style}>
+      {parts.map((p, i) => p.isLink ? (
+        <Text key={i} style={[style, { color: linkColor, textDecorationLine: 'underline' }]} onPress={() => Linking.openURL(p.content)}>
+          {p.content}
+        </Text>
+      ) : (
+        <Text key={i} style={style}>{p.content}</Text>
+      ))}
+    </Text>
   );
 }
 
@@ -272,8 +297,34 @@ export default function ChatScreen() {
           }
         }}
         styles={styles}
+        theme={theme}
       />
     );
+  };
+
+  // Build unified list with date separators
+  const unified: Array<{ type: 'date' | 'message'; id: string; date?: string; message?: Message }> = [];
+  let lastDate: string | null = null;
+  for (const m of messages) {
+    const dKey = format(new Date(m.created_at), 'yyyy-MM-dd');
+    if (dKey !== lastDate) {
+      lastDate = dKey;
+      unified.push({ type: 'date', id: `date-${dKey}`, date: dKey });
+    }
+    unified.push({ type: 'message', id: m.id, message: m });
+  }
+
+  const renderUnified = ({ item }: { item: any }) => {
+    if (item.type === 'date') {
+      return (
+        <View style={styles.dateSeparatorContainer}>
+          <View style={styles.dateSeparatorLine} />
+          <Text style={[styles.dateSeparatorText, { color: theme.textMuted }]}>{format(new Date(item.date), 'd MMM yyyy', { locale: nb })}</Text>
+          <View style={styles.dateSeparatorLine} />
+        </View>
+      );
+    }
+    return renderItem({ item: item.message });
   };
 
   return (
@@ -293,11 +344,18 @@ export default function ChatScreen() {
               <View style={{ width: 36 }} />
             </View>
           </SafeAreaView>
+          <View style={styles.profileSection}>
+            <View style={styles.profileAvatar}>
+              <FA name="user" size={40} color={theme.textMuted} />
+            </View>
+            <Text style={[styles.profileName, { color: theme.text }]}>{otherName || 'Bruker'}</Text>
+            <Text style={[styles.profileMeta, { color: theme.textMuted }]}>Verifisert • Siden 2023</Text>
+          </View>
           <FlatList
             ref={listRef}
-            data={messages}
+            data={unified}
             keyExtractor={(item) => item.id}
-            renderItem={renderItem}
+            renderItem={renderUnified}
             contentContainerStyle={[styles.listContent, { paddingTop: 8 }]}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           />
@@ -362,12 +420,21 @@ function getStyles(theme: typeof Colors.light, scheme: 'light' | 'dark') {
       justifyContent: 'center',
     },
     headerTitle: { fontSize: 18, fontWeight: '700' },
+    profileSection: { alignItems: 'center', paddingVertical: 12, gap: 6 },
+    profileAvatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: scheme === 'dark' ? theme.cardElevated : theme.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.border },
+    profileName: { fontSize: 18, fontWeight: '600' },
+    profileMeta: { fontSize: 12 },
+    dateSeparatorContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 12, gap: 8 },
+    dateSeparatorLine: { flex: 1, height: 1, backgroundColor: theme.border },
+    dateSeparatorText: { fontSize: 12 },
     bubble: {
       maxWidth: '75%',
       borderRadius: 18,
       paddingHorizontal: 14,
       paddingVertical: 8,
       marginVertical: 4,
+      borderWidth: 1,
+      borderColor: theme.border,
     },
     bubbleMine: {
       alignSelf: 'flex-end',
@@ -375,9 +442,9 @@ function getStyles(theme: typeof Colors.light, scheme: 'light' | 'dark') {
     },
     bubbleTheirs: {
       alignSelf: 'flex-start',
-      backgroundColor: scheme === 'dark' ? theme.cardElevated : theme.card,
+      backgroundColor: scheme === 'dark' ? theme.card : theme.card,
     },
-    bubbleText: { color: scheme === 'dark' ? theme.text : theme.text, fontSize: 16, lineHeight: 22 },
+    bubbleText: { color: theme.text, fontSize: 16, lineHeight: 22 },
     bubbleTextMine: { color: '#fff' },
     bubbleTextWithImage: { marginTop: 8 },
     messageImage: { width: 200, height: 200, borderRadius: 12, marginBottom: 4 },
