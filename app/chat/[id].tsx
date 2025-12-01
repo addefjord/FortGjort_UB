@@ -4,7 +4,7 @@ import { nb } from 'date-fns/locale';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '../../components/themed-text';
 import Colors from '../../constants/Colors';
@@ -14,6 +14,100 @@ import { database } from '../../lib/database';
 import { supabase } from '../../lib/supabase';
 import type { Message } from '../../types/database';
 
+// Animated wrapper for a single message bubble
+function MessageBubble({ item, mine, timestamp, onDelete }: { item: Message; mine: boolean; timestamp: string; onDelete: () => void }) {
+  const fadeAnim = useRef(new Animated.Value(0));
+  const slideAnim = useRef(new Animated.Value(20));
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim.current, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim.current, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const handleLongPress = () => {
+    if (!mine) return;
+    Alert.alert('Slett melding', 'Er du sikker på at du vil slette denne meldingen?', [
+      { text: 'Avbryt', style: 'cancel' },
+      {
+        text: 'Slett',
+        style: 'destructive',
+        onPress: onDelete,
+      },
+    ]);
+  };
+
+  return (
+    <Animated.View
+      style={{
+        opacity: fadeAnim.current,
+        transform: [{ translateY: slideAnim.current }],
+      }}
+    >
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onLongPress={handleLongPress}
+        style={[
+          styles.bubble,
+          mine ? styles.bubbleMine : styles.bubbleTheirs,
+          {
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.1,
+            shadowRadius: 3,
+            elevation: 2,
+          },
+        ]}
+      >
+        {item.image_url && (
+          <TouchableOpacity onPress={() => Alert.alert('Bilde', 'Full bildestørrelse kommer snart')}>
+            <Image source={{ uri: item.image_url }} style={styles.messageImage} />
+          </TouchableOpacity>
+        )}
+        {item.content ? (
+          <Text
+            style={[
+              styles.bubbleText,
+              mine && styles.bubbleTextMine,
+              item.image_url && styles.bubbleTextWithImage,
+            ]}
+          >
+            {item.content}
+          </Text>
+        ) : null}
+        <View style={styles.bubbleFooter}>
+          <Text style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}>{timestamp}</Text>
+          {mine && (
+            <View style={styles.readStatus}>
+              <FA
+                name="check"
+                size={10}
+                color={item.read ? Colors.light.tint : '#999'}
+                style={{ marginLeft: -6 }}
+              />
+              <FA
+                name="check"
+                size={10}
+                color={item.read ? Colors.light.tint : '#999'}
+              />
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// Real-time chat screen with message history, typing indicators, and image support
 export default function ChatScreen() {
   const { id: otherUserId } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
@@ -164,50 +258,23 @@ export default function ChatScreen() {
   const renderItem = ({ item }: { item: Message }) => {
     const mine = item.sender_id === user?.id;
     const timestamp = format(new Date(item.created_at), 'HH:mm', { locale: nb });
-    const handleLongPress = () => {
-      if (!mine) return; // only allow deleting own messages
-      Alert.alert('Slett melding', 'Er du sikker på at du vil slette denne meldingen?', [
-        { text: 'Avbryt', style: 'cancel' },
-        {
-          text: 'Slett',
-          style: 'destructive',
-          onPress: async () => {
-            // Optimistic removal
-            setMessages(prev => prev.filter(m => m.id !== item.id));
-            try {
-              await database.messages.delete(item.id);
-            } catch (e) {
-              console.error('Delete failed:', e);
-              Alert.alert('Feil', 'Kunne ikke slette meldingen');
-              // Reload to restore state if deletion failed
-              load();
-            }
-          }
-        }
-      ]);
-    };
+
     return (
-      <TouchableOpacity activeOpacity={0.85} onLongPress={handleLongPress} style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
-        {item.image_url && (
-          <TouchableOpacity onPress={() => Alert.alert('Bilde', 'Full bildestørrelse kommer snart')}>
-            <Image source={{ uri: item.image_url }} style={styles.messageImage} />
-          </TouchableOpacity>
-        )}
-        {item.content ? (
-          <Text style={[styles.bubbleText, mine && styles.bubbleTextMine, item.image_url && styles.bubbleTextWithImage]}>
-            {item.content}
-          </Text>
-        ) : null}
-        <View style={styles.bubbleFooter}>
-          <Text style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}>{timestamp}</Text>
-          {mine && (
-            <View style={styles.readStatus}>
-              <FA name="check" size={10} color={item.read ? Colors.light.tint : '#999'} style={{ marginLeft: -6 }} />
-              <FA name="check" size={10} color={item.read ? Colors.light.tint : '#999'} />
-            </View>
-          )}
-        </View>
-      </TouchableOpacity>
+      <MessageBubble
+        item={item}
+        mine={mine}
+        timestamp={timestamp}
+        onDelete={async () => {
+          setMessages(prev => prev.filter(m => m.id !== item.id));
+          try {
+            await database.messages.delete(item.id);
+          } catch (e) {
+            console.error('Delete failed:', e);
+            Alert.alert('Feil', 'Kunne ikke slette meldingen');
+            load();
+          }
+        }}
+      />
     );
   };
 
@@ -222,7 +289,7 @@ export default function ChatScreen() {
           <SafeAreaView edges={["top"]}>
             <View style={styles.header}>
               <TouchableOpacity style={styles.headerBack} onPress={() => router.back()}>
-                <FA name="chevron-left" size={18} color="#000" />
+                <FA name="chevron-left" size={18} color="#fff" />
               </TouchableOpacity>
               <Text style={styles.headerTitle}>{otherName || 'Chat'}</Text>
               <View style={{ width: 36 }} />
@@ -276,32 +343,119 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.light.background },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { padding: 16, paddingBottom: 90 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10, backgroundColor: Colors.light.background },
-  headerBack: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 16, 
+    paddingTop: 6, 
+    paddingBottom: 10, 
+    backgroundColor: Colors.light.tint,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  headerBack: { 
+    width: 36, 
+    height: 36, 
+    borderRadius: 18, 
+    backgroundColor: 'rgba(255,255,255,0.2)', 
+    alignItems: 'center', 
+    justifyContent: 'center',
+  },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  bubble: { maxWidth: '80%', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 4 },
-  bubbleMine: { alignSelf: 'flex-end', backgroundColor: Colors.light.tint },
-  bubbleTheirs: { alignSelf: 'flex-start', backgroundColor: '#e9ecef' },
-  bubbleText: { color: '#333', fontSize: 16 },
+  bubble: { 
+    maxWidth: '80%', 
+    borderRadius: 20, 
+    paddingHorizontal: 16, 
+    paddingVertical: 10, 
+    marginVertical: 4,
+  },
+  bubbleMine: { 
+    alignSelf: 'flex-end', 
+    backgroundColor: Colors.light.tint,
+    borderBottomRightRadius: 4,
+  },
+  bubbleTheirs: { 
+    alignSelf: 'flex-start', 
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 4,
+  },
+  bubbleText: { color: '#333', fontSize: 16, lineHeight: 22 },
   bubbleTextMine: { color: '#fff' },
   bubbleTextWithImage: { marginTop: 8 },
   messageImage: { width: 200, height: 200, borderRadius: 12, marginBottom: 4 },
   bubbleFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
-  bubbleTime: { fontSize: 11, color: '#666' },
-  bubbleTimeMine: { color: 'rgba(255,255,255,0.8)' },
+  bubbleTime: { fontSize: 11, color: '#999' },
+  bubbleTimeMine: { color: 'rgba(255,255,255,0.7)' },
   readStatus: { flexDirection: 'row', alignItems: 'center' },
-  typingIndicator: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: Colors.light.background },
+  typingIndicator: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#f8f9fa' },
   typingText: { fontSize: 13, color: '#666', fontStyle: 'italic' },
-  composer: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 12, backgroundColor: 'white', borderTopWidth: 1, borderTopColor: '#eee' },
+  composer: { 
+    position: 'absolute', 
+    left: 0, 
+    right: 0, 
+    bottom: 0, 
+    padding: 12, 
+    backgroundColor: 'white', 
+    borderTopWidth: 1, 
+    borderTopColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 8,
+  },
   imagePreviewContainer: { marginBottom: 8, position: 'relative' },
   imagePreview: { width: 100, height: 100, borderRadius: 8 },
-  removeImageButton: { position: 'absolute', top: -8, right: -8, backgroundColor: Colors.light.error, borderRadius: 12, width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
+  removeImageButton: { 
+    position: 'absolute', 
+    top: -8, 
+    right: -8, 
+    backgroundColor: Colors.light.error, 
+    borderRadius: 12, 
+    width: 24, 
+    height: 24, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   attachButton: { padding: 8 },
-  input: { flex: 1, minHeight: 40, maxHeight: 120, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: 'white' },
-  sendButton: { marginLeft: 8, backgroundColor: Colors.light.tint, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+  input: { 
+    flex: 1, 
+    minHeight: 40, 
+    maxHeight: 120, 
+    borderWidth: 1, 
+    borderColor: '#e0e0e0', 
+    borderRadius: 20, 
+    paddingHorizontal: 16, 
+    paddingVertical: 10, 
+    backgroundColor: '#f8f9fa',
+    fontSize: 16,
+  },
+  sendButton: { 
+    marginLeft: 8, 
+    backgroundColor: Colors.light.tint, 
+    paddingHorizontal: 16, 
+    paddingVertical: 10, 
+    borderRadius: 20,
+    shadowColor: Colors.light.tint,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
   sendDisabled: { opacity: 0.6 },
 });
