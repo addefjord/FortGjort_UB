@@ -8,6 +8,7 @@ import { ActivityIndicator, Alert, Animated, FlatList, Image, KeyboardAvoidingVi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '../../components/themed-text';
 import Colors from '../../constants/Colors';
+import { useColorScheme } from '../../hooks/use-color-scheme';
 import { useAuth } from '../../lib/auth-context';
 import { useData } from '../../lib/data-context';
 import { database } from '../../lib/database';
@@ -15,7 +16,7 @@ import { supabase } from '../../lib/supabase';
 import type { Message } from '../../types/database';
 
 // Animated wrapper for a single message bubble
-function MessageBubble({ item, mine, timestamp, onDelete }: { item: Message; mine: boolean; timestamp: string; onDelete: () => void }) {
+function MessageBubble({ item, mine, timestamp, onDelete, styles }: { item: Message; mine: boolean; timestamp: string; onDelete: () => void; styles: ReturnType<typeof getStyles> }) {
   const fadeAnim = useRef(new Animated.Value(0));
   const slideAnim = useRef(new Animated.Value(20));
 
@@ -109,6 +110,9 @@ function MessageBubble({ item, mine, timestamp, onDelete }: { item: Message; min
 
 // Real-time chat screen with message history, typing indicators, and image support
 export default function ChatScreen() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  const styles = getStyles(theme, colorScheme);
   const { id: otherUserId } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -274,6 +278,7 @@ export default function ChatScreen() {
             load();
           }
         }}
+        styles={styles}
       />
     );
   };
@@ -289,9 +294,9 @@ export default function ChatScreen() {
           <SafeAreaView edges={["top"]}>
             <View style={styles.header}>
               <TouchableOpacity style={styles.headerBack} onPress={() => router.back()}>
-                <FA name="chevron-left" size={18} color="#fff" />
+                <FA name="chevron-left" size={18} color={theme.tint} />
               </TouchableOpacity>
-              <Text style={styles.headerTitle}>{otherName || 'Chat'}</Text>
+              <Text style={[styles.headerTitle, { color: theme.text }]}>{otherName || 'Chat'}</Text>
               <View style={{ width: 36 }} />
             </View>
           </SafeAreaView>
@@ -306,7 +311,7 @@ export default function ChatScreen() {
 
           {otherTyping && (
             <View style={styles.typingIndicator}>
-              <Text style={styles.typingText}>{otherName} skriver...</Text>
+              <Text style={[styles.typingText, { color: theme.textMuted }]}>{otherName} skriver...</Text>
             </View>
           )}
 
@@ -321,18 +326,18 @@ export default function ChatScreen() {
             )}
             <View style={styles.inputRow}>
               <TouchableOpacity style={styles.attachButton} onPress={pickImage}>
-                <FontAwesome name="image" size={22} color={Colors.light.tint} />
+                <FontAwesome name="image" size={22} color={theme.tint} />
               </TouchableOpacity>
               <TextInput
                 style={styles.input}
                 value={text}
                 onChangeText={handleTextChange}
                 placeholder="Skriv en melding"
-                placeholderTextColor="#999"
+                placeholderTextColor={theme.textMuted}
                 multiline
               />
               <TouchableOpacity style={[styles.sendButton, ((!text.trim() && !selectedImage) || sending) && styles.sendDisabled]} onPress={send} disabled={(!text.trim() && !selectedImage) || sending}>
-                <FontAwesome name="send" size={18} color="#fff" />
+                <FontAwesome name="send" size={18} color={theme.text} />
               </TouchableOpacity>
             </View>
           </View>
@@ -341,121 +346,119 @@ export default function ChatScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  listContent: { padding: 16, paddingBottom: 90 },
-  header: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'space-between', 
-    paddingHorizontal: 16, 
-    paddingTop: 6, 
-    paddingBottom: 10, 
-    backgroundColor: Colors.light.tint,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  headerBack: { 
-    width: 36, 
-    height: 36, 
-    borderRadius: 18, 
-    backgroundColor: 'rgba(255,255,255,0.2)', 
-    alignItems: 'center', 
-    justifyContent: 'center',
-  },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  bubble: { 
-    maxWidth: '80%', 
-    borderRadius: 20, 
-    paddingHorizontal: 16, 
-    paddingVertical: 10, 
-    marginVertical: 4,
-  },
-  bubbleMine: { 
-    alignSelf: 'flex-end', 
-    backgroundColor: Colors.light.tint,
-    borderBottomRightRadius: 4,
-  },
-  bubbleTheirs: { 
-    alignSelf: 'flex-start', 
-    backgroundColor: '#ffffff',
-    borderBottomLeftRadius: 4,
-  },
-  bubbleText: { color: '#333', fontSize: 16, lineHeight: 22 },
-  bubbleTextMine: { color: '#fff' },
-  bubbleTextWithImage: { marginTop: 8 },
-  messageImage: { width: 200, height: 200, borderRadius: 12, marginBottom: 4 },
-  bubbleFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
-  bubbleTime: { fontSize: 11, color: '#999' },
-  bubbleTimeMine: { color: 'rgba(255,255,255,0.7)' },
-  readStatus: { flexDirection: 'row', alignItems: 'center' },
-  typingIndicator: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#f8f9fa' },
-  typingText: { fontSize: 13, color: '#666', fontStyle: 'italic' },
-  composer: { 
-    position: 'absolute', 
-    left: 0, 
-    right: 0, 
-    bottom: 0, 
-    padding: 12, 
-    backgroundColor: 'white', 
-    borderTopWidth: 1, 
-    borderTopColor: '#e0e0e0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  imagePreviewContainer: { marginBottom: 8, position: 'relative' },
-  imagePreview: { width: 100, height: 100, borderRadius: 8 },
-  removeImageButton: { 
-    position: 'absolute', 
-    top: -8, 
-    right: -8, 
-    backgroundColor: Colors.light.error, 
-    borderRadius: 12, 
-    width: 24, 
-    height: 24, 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  attachButton: { padding: 8 },
-  input: { 
-    flex: 1, 
-    minHeight: 40, 
-    maxHeight: 120, 
-    borderWidth: 1, 
-    borderColor: '#e0e0e0', 
-    borderRadius: 20, 
-    paddingHorizontal: 16, 
-    paddingVertical: 10, 
-    backgroundColor: '#f8f9fa',
-    fontSize: 16,
-  },
-  sendButton: { 
-    marginLeft: 8, 
-    backgroundColor: Colors.light.tint, 
-    paddingHorizontal: 16, 
-    paddingVertical: 10, 
-    borderRadius: 20,
-    shadowColor: Colors.light.tint,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  sendDisabled: { opacity: 0.6 },
-});
+function getStyles(theme: typeof Colors.light, scheme: 'light' | 'dark') {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    listContent: { padding: 16, paddingBottom: 90 },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingTop: 6,
+      paddingBottom: 10,
+      backgroundColor: theme.background,
+    },
+    headerBack: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: theme.card,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: theme.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: scheme === 'dark' ? 0.4 : 0.1,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    headerTitle: { fontSize: 18, fontWeight: '700' },
+    bubble: {
+      maxWidth: '75%',
+      borderRadius: 18,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      marginVertical: 4,
+    },
+    bubbleMine: {
+      alignSelf: 'flex-end',
+      backgroundColor: theme.tint,
+    },
+    bubbleTheirs: {
+      alignSelf: 'flex-start',
+      backgroundColor: scheme === 'dark' ? theme.cardElevated : theme.card,
+    },
+    bubbleText: { color: scheme === 'dark' ? theme.text : theme.text, fontSize: 16, lineHeight: 22 },
+    bubbleTextMine: { color: '#fff' },
+    bubbleTextWithImage: { marginTop: 8 },
+    messageImage: { width: 200, height: 200, borderRadius: 12, marginBottom: 4 },
+    bubbleFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
+    bubbleTime: { fontSize: 11, color: theme.textMuted },
+    bubbleTimeMine: { color: 'rgba(255,255,255,0.75)' },
+    readStatus: { flexDirection: 'row', alignItems: 'center' },
+    typingIndicator: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: theme.background },
+    typingText: { fontSize: 13, fontStyle: 'italic' },
+    composer: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      padding: 12,
+      backgroundColor: scheme === 'dark' ? theme.card : '#FFFFFF',
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      shadowColor: theme.shadow,
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: scheme === 'dark' ? 0.4 : 0.08,
+      shadowRadius: 6,
+      elevation: 6,
+    },
+    imagePreviewContainer: { marginBottom: 8, position: 'relative' },
+    imagePreview: { width: 100, height: 100, borderRadius: 8 },
+    removeImageButton: {
+      position: 'absolute',
+      top: -8,
+      right: -8,
+      backgroundColor: theme.error,
+      borderRadius: 12,
+      width: 24,
+      height: 24,
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: theme.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: scheme === 'dark' ? 0.5 : 0.2,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    attachButton: { padding: 8 },
+    input: {
+      flex: 1,
+      minHeight: 40,
+      maxHeight: 120,
+      borderWidth: 1,
+      borderColor: theme.inputBorder,
+      borderRadius: 18,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      backgroundColor: theme.input,
+      fontSize: 16,
+      color: theme.text,
+    },
+    sendButton: {
+      marginLeft: 8,
+      backgroundColor: theme.tint,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 18,
+      shadowColor: theme.tint,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: scheme === 'dark' ? 0.5 : 0.25,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    sendDisabled: { opacity: 0.5 },
+  });
+}
